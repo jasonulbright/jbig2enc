@@ -143,7 +143,7 @@ stage_gcc_runtime() {
   [ -n "$gcc_version" ] || die "cannot read the GCC runtime version"
   cp "$SPECTRA_DIR/licenses/LICENSE-gcc-runtime.txt" "$STAGE/licenses/LICENSE-gcc-runtime.txt"
   printf 'libstdc++.so.6\tgcc-runtime\nlibgcc_s.so.1\tgcc-runtime\n' >> "$2"
-  printf 'gcc-runtime\t%s\tGPL-3.0-only WITH GCC-exception-3.1\thttps://gcc.gnu.org\tLICENSE-gcc-runtime.txt\n' "$gcc_version" >> "$STAGE/NOTICES.tsv"
+  printf 'gcc-runtime\t%s\tGPL-3.0-or-later WITH GCC-exception-3.1\thttps://gcc.gnu.org\tLICENSE-gcc-runtime.txt\n' "$gcc_version" >> "$STAGE/NOTICES.tsv"
 }
 
 # set_runpaths ->bin/ resolves in ../lib, lib/ resolves beside itself.
