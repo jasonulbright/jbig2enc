@@ -1,0 +1,81 @@
+name: spectra-linux
+
+on:
+  push:
+    branches: [spectra-build]
+    paths:
+      - 'spectra/**'
+      - '!spectra/README.md'
+      - '.github/workflows/spectra-linux.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: spectra-linux
+  cancel-in-progress: false
+
+env:
+  BUILD_IMAGE: quay.io/pypa/manylinux_2_28_x86_64:2026.09.29-1@sha256:407f771c51a2c3e83ebe5a7970b4289ead3a6db21d9b9c089168775cad11d328
+  DNF_PACKAGES: zstd
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify the tree is the pinned upstream commit plus spectra files
+        run: |
+          . spectra/pins.env
+          git fetch --no-tags --depth=1 origin "$UPSTREAM_COMMIT"
+          git diff --quiet "$UPSTREAM_COMMIT" HEAD -- . ':(exclude)spectra' ':(exclude).github/workflows/spectra-linux.yml'
+          echo "TAG=spectra-$UPSTREAM_VERSION-$SPECTRA_BUILD" >> "$GITHUB_ENV"
+          echo "UPSTREAM_TAG=$UPSTREAM_TAG" >> "$GITHUB_ENV"
+          echo "UPSTREAM_COMMIT=$UPSTREAM_COMMIT" >> "$GITHUB_ENV"
+          echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct "$UPSTREAM_COMMIT")" >> "$GITHUB_ENV"
+
+      - name: Refuse a build number that is already published
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "error: release $TAG is already published; raise SPECTRA_BUILD in spectra/pins.env" >&2
+            exit 1
+          fi
+
+      - name: Build in the manylinux_2_28 container
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src \
+            -e SOURCE_DATE_EPOCH -e SPECTRA_WORK=/tmp/spectra-work -e SPECTRA_OUT=/src/.spectra-out \
+            "$BUILD_IMAGE" \
+            sh -c 'dnf install -y $0 && export PATH=/opt/python/cp312-cp312/bin:$PATH && sh spectra/build.sh' "$DNF_PACKAGES"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          asset="$(cat .spectra-out/asset-name.txt)"
+          sha="$(cat .spectra-out/asset-sha256.txt)"
+          size="$(cat .spectra-out/asset-size.txt)"
+          floor="$(cat .spectra-out/glibc-floor.txt)"
+          (cd .spectra-out && sha256sum --check <(echo "$sha  $asset"))
+          {
+            echo "## Requires $floor or later on Linux x86-64"
+            echo
+            echo "### Assets"
+            echo "- Add \`$asset\`: $size bytes, SHA-256 \`$sha\`."
+            echo
+            echo "### Source"
+            echo "- Build upstream tag \`$UPSTREAM_TAG\` at commit \`$UPSTREAM_COMMIT\` unmodified."
+          } > release-notes.md
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null; then
+            git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" ":refs/tags/$TAG"
+          fi
+          gh release create "$TAG" ".spectra-out/$asset" --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" --title "$TAG" --notes-file release-notes.md
