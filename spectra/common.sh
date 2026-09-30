@@ -93,6 +93,7 @@ build_tools() {
     site="$("$tools/bin/python3" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
     "$tools/bin/python3" -m zipfile -e "$cm" "$site"
     "$tools/bin/python3" -m zipfile -e "$pe" "$site"
+    chmod +x "$site"/cmake/data/bin/* 2>/dev/null || true
     [ -x "$site/cmake/data/bin/cmake" ] || die "the cmake wheel layout changed: no cmake/data/bin/cmake"
     printf '#!/bin/sh\nexec "%s" "$@"\n' "$site/cmake/data/bin/cmake" > "$tools/bin/cmake"
     chmod +x "$tools/bin/cmake"
